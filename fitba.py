@@ -60,6 +60,22 @@ class JsonFileChooser:
     dialog.destroy()
     return self.filename
 
+def create_text_layer_at( image, text_value, font, ptSize, parentLayer, posX, posY ):
+  text_layer = Gimp.TextLayer.new(image, text_value, font, ptSize, Gimp.Unit.point())
+  image.insert_layer( text_layer, parentLayer, -1 )
+  text_layer.set_line_spacing(10.0)
+  text_layer.set_offsets( posX, posY )
+  return text_layer
+
+def create_image_layer_at( image, folder, club, parentLayer, squareSize, posX, posY ):
+  file = Gio.File.new_for_path( folder + "\\" + club + ".squadi.png" )
+  hlayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
+  image.insert_layer(hlayer, parentLayer, -1 )
+  hX, hY = newDimensions( hlayer, squareSize )
+  hlayer.scale( hX, hY, True )
+  hlayer.set_offsets( posX, posY )
+  return hlayer
+  
 # Extracts the columnar data
 def extract_column(data, attr):
   if not data:
@@ -70,32 +86,6 @@ def coords_to_vec2_list(flat_coords):
   return [(flat_coords[i], flat_coords[i + 1]) for i in range(0, len(flat_coords), 2)]
 
   
-def catmull_rom_coords(coords):
-    if len(coords) < 4:
-        return coords  # not enough for interpolation
-    
-    smooth = []
-    
-    for i in range(1, len(coords) - 2):
-        p0, p1, p2, p3 = coords[i-1], coords[i], coords[i+1], coords[i+2]
-        
-        # Calculate control points
-        cp1 = (
-            p1[0] + (p2[0] - p0[0]) / 6.0,
-            p1[1] + (p2[1] - p0[1]) / 6.0
-        )
-        cp2 = (
-            p2[0] - (p3[0] - p1[0]) / 6.0,
-            p2[1] - (p3[1] - p1[1]) / 6.0
-        )
-        
-        # Convert to cubic Bézier segments (optional: sample the curve)
-        # For simplicity, we'll just add p1, cp1, cp2, p2
-        smooth.extend([p1, cp1, cp2, p2])
-    
-    # Flatten for GIMP
-    return [coord for point in smooth for coord in point]
-    
 def create_highlight_row(image, grpLayer, xPos, yPos, width, height):
   # Create a background layer for the matching row
   bg_layer = Gimp.Layer.new(image, "Oxley Woo", width, height, Gimp.ImageType.RGBA_IMAGE, 50, Gimp.LayerMode.NORMAL)
@@ -123,15 +113,15 @@ def create_player_colour(image, grpLayer, xPos, yPos, width, height, color):
   Gimp.context_set_foreground(curFG)
   
 def create_title_card(image, grpLayer, ptSize, font, value):
-  text_layer = Gimp.TextLayer.new(image, value, font, ptSize * 2, Gimp.Unit.point())
-  image.insert_layer( text_layer, grpLayer, -1 )
+  text_layer = create_text_layer_at( image, value, font, ptSize * 2, grpLayer, 0, 100 )
+  # Centre it
   lWidth = text_layer.get_width()
   iWidth = image.get_width()
   newX = (iWidth / 2) - (lWidth / 2)
   text_layer.set_offsets( newX, 100 )
   return text_layer
 
-def process_table(image, data, xPos, yPos, ptSize):
+def process_table( parLayer, image, data, xPos, yPos, ptSize):
 
   white = Gimp.color_parse_hex( "FFFFFF" )
   Gimp.context_set_foreground(white)  # Red, 50% alpha
@@ -149,15 +139,12 @@ def process_table(image, data, xPos, yPos, ptSize):
   # Loop through fields to create text layers
   runningOffset = x_offset
   grpLayer = Gimp.GroupLayer.new(image, data["comp"] + " Table")
-  image.insert_layer( grpLayer, None, 0 )
+  image.insert_layer( grpLayer, parLayer, -1 )
   lHeight = 0
   create_title_card(image, grpLayer, ptSize, font, data["comp"])
   for i, field in enumerate(fields):
     field_values = "\n".join( [labels[i]] + extract_column( data["table"], field ) )
-    text_layer = Gimp.TextLayer.new(image, field_values, font, ptSize, Gimp.Unit.point())
-    image.insert_layer( text_layer, grpLayer, -1 )
-    text_layer.set_line_spacing(10.0)
-    text_layer.set_offsets( xPos + runningOffset, yPos )
+    text_layer = create_text_layer_at( image, field_values, font, ptSize, grpLayer, xPos + runningOffset, yPos )
     runningOffset += offsets[i]
     lHeight = text_layer.get_height()
 
@@ -188,10 +175,7 @@ def process_gb_table(image, data, xPos, yPos, ptSize):
   image.insert_layer( grpLayer, None, 0 )
   create_title_card(image, grpLayer, ptSize, font, "Metro Golden Boot")
   name_values = "\n".join( [labels[0]] + extract_column( data, "name" ) )
-  text_layer = Gimp.TextLayer.new(image, name_values, font, ptSize, Gimp.Unit.point())
-  image.insert_layer( text_layer, grpLayer, -1 )
-  text_layer.set_line_spacing(10.0)
-  text_layer.set_offsets( xPos + runningOffset, yPos )
+  text_layer = create_text_layer_at( image, name_values, font, ptSize, grpLayer, xPos + runningOffset, yPos )
   runningOffset += offsets[0]
   
   round_layer = create_title_card(image, grpLayer, ptSize / 2, font, "Match")
@@ -209,10 +193,7 @@ def process_gb_table(image, data, xPos, yPos, ptSize):
       else:
         field_values += "\n"
         
-    text_layer = Gimp.TextLayer.new(image, field_values, font, ptSize, Gimp.Unit.point())
-    image.insert_layer( text_layer, grpLayer, -1 )
-    text_layer.set_line_spacing(10.0)
-    text_layer.set_offsets( xPos + runningOffset, yPos )
+    text_layer = create_text_layer_at( image, field_values, font, ptSize, grpLayer, xPos + runningOffset, yPos )
     runningOffset += offsets[i+1]
 
   colors = [ "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF"]
@@ -253,8 +234,10 @@ def score_table_run(procedure, run_mode, image, drawables, config, data):
     data = load_json( json_path )
 
     image.undo_group_start()
+    grpLayer = Gimp.GroupLayer.new(image, "Tables")
+    image.insert_layer( grpLayer, None, 0 )
     for i, entry in enumerate(data):
-        process_table( image, entry, 200, 600, 28 )
+        process_table( grpLayer, image, entry, 200, 600, 28 )
     image.undo_group_end()
 
     return procedure.new_return_values( Gimp.PDBStatusType.SUCCESS, None )
@@ -295,17 +278,13 @@ def draw_gb_graph(image, data, xPos, yPos, ptSize):
   for i in range(nGoals):
     nextY = yPos + ((i + 1) * tickY)
     label_value = str(nGoals - i)
-    text_layer = Gimp.TextLayer.new(image, label_value, font, ptSize, Gimp.Unit.point())
-    image.insert_layer( text_layer, grpLayer, -1 )
-    text_layer.set_offsets( 250, nextY - text_layer.get_height() / 2 )
+    text_layer = create_text_layer_at( image, label_value, font, ptSize, grpLayer, 250, nextY - text_layer.get_height() / 2 )
     
   # X-Axis Labels
   for i in range(nRounds):
     nextX = xPos + ( (i + 1) * tickX)
     label_value = str(i + 1)
-    text_layer = Gimp.TextLayer.new(image, label_value, font, ptSize, Gimp.Unit.point())
-    image.insert_layer( text_layer, grpLayer, -1 )
-    text_layer.set_offsets( nextX - text_layer.get_width() / 2, bottom + 50 )
+    text_layer = create_text_layer_at( image, label_value, font, ptSize, grpLayer, nextX - text_layer.get_width() / 2, bottom + 50 )
     
   # Player Graph
   curFG = Gimp.context_get_foreground()
@@ -327,31 +306,7 @@ def draw_gb_graph(image, data, xPos, yPos, ptSize):
     
     print(linecoords)
     Gimp.context_set_foreground( newFG )
-    #Gimp.pencil( drawLayer, linecoords )
     Gimp.airbrush( drawLayer, 50, linecoords )
-    #points = coords_to_vec2_list(linecoords)
-    ##smooth_path = catmull_rom_to_bezier(points)
-    ##smooth_coords = catmull_rom_coords(points)
-    #smooth_path = Gimp.Path.new(image, "LineGraphSpline")
-    #for i in range(1, len(points) - 2):
-    #  x0, y0 = points[i - 1]
-    #  x1, y1 = points[i]
-    #  x2, y2 = points[i + 1]
-    #  x3, y3 = points[i + 2]
-#
-    #  cp1x = x1 + (x2 - x0) / 6.0
-    #  cp1y = y1 + (y2 - y0) / 6.0
-    #  cp2x = x2 - (x3 - x1) / 6.0
-    #  cp2y = y2 - (y3 - y1) / 6.0
-    #  #smooth_path.add_curve((x1, y1), (cp1x, cp1y), (cp2x, cp2y), (x2, y2))
-    #  segment = Gimp.CurvePathItem.new((x1, y1), (cp1x, cp1y), (cp2x, cp2y), (x2, y2), False)
-    #  smooth_path.add_item(segment)
-
-    #Gimp.image_insert_path(image, smooth_path, drawLayer, -1)
-    #Gimp.edit_stroke(drawLayer, smooth_path)
-    #Gimp.image_insert_path(image, smooth_path, drawLayer, -1)
-    #Gimp.edit_stroke(drawLayer, smooth_path)
-
   
   Gimp.context_set_brush_size( orgLineWith )
   Gimp.context_set_foreground( curFG )
@@ -428,10 +383,7 @@ def process_fixture_table(image, run_mode, folder, round, fixtures, ptSize ):
     else:
       text_value += entry["away"]
       
-    text_layer = Gimp.TextLayer.new(image, text_value, font, ptSize, Gimp.Unit.point())
-    image.insert_layer( text_layer, grpLayerTeam, -1 )
-    text_layer.set_line_spacing(10.0)
-    text_layer.set_offsets( 2000, 1000 + i * 500 )
+    text_layer = create_text_layer_at( image, text_value, font, ptSize, grpLayerTeam, 2000, 1000 + i * 500 )
 
     # Load home    
     file = Gio.File.new_for_path( folder + "\\" + entry["home"] + ".squadi.png" )
@@ -452,22 +404,6 @@ def process_fixture_table(image, run_mode, folder, round, fixtures, ptSize ):
     i = i + 1
   return image
 
-def create_text_layer_at( image, text_value, font, ptSize, parentLayer, posX, posY ):
-  text_layer = Gimp.TextLayer.new(image, text_value, font, ptSize, Gimp.Unit.point())
-  image.insert_layer( text_layer, parentLayer, -1 )
-  text_layer.set_line_spacing(10.0)
-  text_layer.set_offsets( posX, posY )
-  return text_layer
-
-def create_image_layer_at( image, folder, club, parentLayer, squareSize, posX, posY ):
-  file = Gio.File.new_for_path( folder + "\\" + club + ".squadi.png" )
-  hlayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
-  image.insert_layer(hlayer, parentLayer, -1 )
-  hX, hY = newDimensions( hlayer, squareSize )
-  hlayer.scale( hX, hY, True )
-  hlayer.set_offsets( posX, posY )
-  return hlayer
-  
 def process_fixture_results(image, run_mode, folder, round, fixtures, ptSize ):
 
   nRounds = len(fixtures)
@@ -536,10 +472,7 @@ def process_team_fixture_table(image, folder, division, fixtures, ptSize ):
     else:
       text_value += entry["away"]
       
-    text_layer = Gimp.TextLayer.new(image, text_value, font, ptSize, Gimp.Unit.point())
-    image.insert_layer( text_layer, grpLayerTeam, -1 )
-    text_layer.set_line_spacing(10.0)
-    text_layer.set_offsets( 2000, 1000 + i * 500 )
+    text_layer = create_text_layer_at( image, text_value, font, ptSize, grpLayerTeam, 2000, 1000 + i * 500 )
 
     # Load home    
     file = Gio.File.new_for_path( folder + "\\" + entry["homeImage"] )
