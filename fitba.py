@@ -68,7 +68,7 @@ def create_text_layer_at( image, text_value, font, ptSize, parentLayer, posX, po
   return text_layer
 
 def create_image_layer_at( image, folder, club, parentLayer, squareSize, posX, posY ):
-  file = Gio.File.new_for_path( folder + "\\" + club + ".squadi.png" )
+  file = Gio.File.new_for_path( folder + "\\" + club + ".png" )
   hlayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
   image.insert_layer(hlayer, parentLayer, -1 )
   hX, hY = newDimensions( hlayer, squareSize )
@@ -386,14 +386,14 @@ def process_fixture_table(image, run_mode, folder, round, fixtures, ptSize ):
     text_layer = create_text_layer_at( image, text_value, font, ptSize, grpLayerTeam, 2000, 1000 + i * 500 )
 
     # Load home    
-    file = Gio.File.new_for_path( folder + "\\" + entry["home"] + ".squadi.png" )
+    file = Gio.File.new_for_path( folder + "\\" + entry["home"] + ".png" )
     hlayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
     image.insert_layer(hlayer, grpLayerTeam, -1 )
     hX, hY = newDimensions( hlayer, 400 )
     hlayer.scale( hX, hY, True )
     hlayer.set_offsets( 1500, 1000 + i * 500 )
 
-    file = Gio.File.new_for_path( folder + "\\" + entry["away"] + ".squadi.png" )
+    file = Gio.File.new_for_path( folder + "\\" + entry["away"] + ".png" )
     alayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
     image.insert_layer(alayer, grpLayerTeam, -1 )
     aX, aY = newDimensions( alayer, 400 )
@@ -460,9 +460,7 @@ def process_team_fixture_table(image, folder, division, fixtures, ptSize ):
     #   "round": "1",
     #   "when": "Fri, Jun 20 06:30 PM",
     #   "home": "Annerley FC",
-    #   "homeImage": "Annerley.squadi.png",
     #   "away": "Oxley United FC",
-    #   "awayImage": "Oxley.png",
     #   "ground": "Elder Oval, Field 1"
     # },
     #
