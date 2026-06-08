@@ -16,6 +16,7 @@ next_fixture_prc  = "plug-in-football-fixture"
 team_fixture_prc  = "plug-in-football-fixture-team"
 draw_football_pr  = "plug-in-football-shape"
 fixture_res_proc  = "plug-in-football-results"
+infographic_proc  = "plug-in-football-infographic"
 
 class JsonFileChooser:
   def __init__(self, title="Select JSON File"):
@@ -85,7 +86,18 @@ def extract_column(data, attr):
 def coords_to_vec2_list(flat_coords):
   return [(flat_coords[i], flat_coords[i + 1]) for i in range(0, len(flat_coords), 2)]
 
-  
+def create_card( image, grpLayer, xPos, yPos, width, height ):
+  bg_layer = Gimp.Layer.new(image, "Card", width, height, Gimp.ImageType.RGBA_IMAGE, 50, Gimp.LayerMode.NORMAL)
+  image.insert_layer( bg_layer, grpLayer, -1 )
+  bg_layer.set_offsets( xPos, yPos )
+
+  # Set background color (red with 50% transparency)
+  curFG = Gimp.context_get_foreground()
+  yellow = Gimp.color_parse_hex( "FFFF00" )
+  Gimp.context_set_foreground(yellow)  # Red, 50% alpha
+  bg_layer.edit_fill(Gimp.FillType.FOREGROUND)
+  Gimp.context_set_foreground(curFG)
+
 def create_highlight_row(image, grpLayer, xPos, yPos, width, height):
   # Create a background layer for the matching row
   bg_layer = Gimp.Layer.new(image, "Oxley Woo", width, height, Gimp.ImageType.RGBA_IMAGE, 50, Gimp.LayerMode.NORMAL)
@@ -383,7 +395,7 @@ def process_fixture_table(image, run_mode, folder, round, fixtures, ptSize ):
     else:
       text_value += entry["away"]
       
-    text_layer = create_text_layer_at( image, text_value, font, ptSize, grpLayerTeam, 2000, 1000 + i * 500 )
+    text_layer = create_text_layer_at( image, text_value, font, ptSize, grpLayerTeam, 1500, 1000 + i * 500 )
 
     # Load home    
     file = Gio.File.new_for_path( folder + "\\" + entry["home"] + ".png" )
@@ -391,14 +403,14 @@ def process_fixture_table(image, run_mode, folder, round, fixtures, ptSize ):
     image.insert_layer(hlayer, grpLayerTeam, -1 )
     hX, hY = newDimensions( hlayer, 400 )
     hlayer.scale( hX, hY, True )
-    hlayer.set_offsets( 1500, 1000 + i * 500 )
+    hlayer.set_offsets( 500, 1000 + i * 500 )
 
     file = Gio.File.new_for_path( folder + "\\" + entry["away"] + ".png" )
     alayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
     image.insert_layer(alayer, grpLayerTeam, -1 )
     aX, aY = newDimensions( alayer, 400 )
-    alayer.scale( hX, hY, True )
-    alayer.set_offsets( 4500, 1000 + i * 500 )
+    alayer.scale( aX, aY, True )
+    alayer.set_offsets( 5000, 1000 + i * 500 )
 
 
     i = i + 1
@@ -492,10 +504,57 @@ def process_team_fixture_table(image, folder, division, fixtures, ptSize ):
     i = i + 1
   return image
 
+def process_infographic(image, run_mode, folder, data, ptSize ):
+
+  topSpot = 250
+  firstLine = 1000
+  lineHeight = 250
+  secondLine = 2200
+  
+  font = Gimp.Font.get_by_name("Serif")
+  # Loop through fields to create text layers
+  grpLayer = Gimp.GroupLayer.new(image, "Infographic")
+  image.insert_layer( grpLayer, None, 0 )
+  title_layer = create_title_card(image, grpLayer, ptSize, font, "Stats so far" )
+  _,xPos,_ = title_layer.get_offsets()
+  title_layer.set_offsets( xPos, topSpot - 150 )
+  
+  ball   = "\U000026BD"
+  person = "\U0001F464"  
+  labels = [ "Total Goals", "Number of Scorers", "Top scorer", "Average Goals / Round", "Best Round" ]
+  dataEntries = [
+    str(data["goals"]) + " " + ball,
+    str(data["uniqueScorers"]) + " " + person,
+    data["top_scorer"]["name"] + " with " + str( data["top_scorer"]["goals"] ) + " goals",
+    data["avgGoalsPerRound"],
+    str(data["highestRoundGoals"]) + " in round " + str( data["highestRound"] )
+  ]
+
+  create_text_layer_at( image, ball + " Goals " + ball, font, ptSize * 2, grpLayer,  200, topSpot + lineHeight )
+  for i, label in enumerate(labels):
+    create_text_layer_at( image, label,                 font, ptSize, grpLayer,  500, firstLine + i * lineHeight )
+    create_text_layer_at( image, str( dataEntries[i] ), font, ptSize, grpLayer, 2850, firstLine + i * lineHeight )
+  
+  labels = [ "Total Cards", "Players Carded", "Top card holder" ]
+  create_card( image, grpLayer, 300, secondLine + lineHeight, 200, 400 )
+  create_text_layer_at( image, "Cards", font, ptSize * 2, grpLayer, 500, secondLine + lineHeight )
+  create_card( image, grpLayer, 1500, secondLine + lineHeight, 200, 400 )
+  dataEntries = [
+    str(data["cards"]),
+    str(data["uniqueCarders"]) + " " + person,
+    data["top_carder"]["name"] + " with " + str( data["top_carder"]["cards"] ) + " cards"
+  ]
+  for i, label in enumerate(labels):
+    create_text_layer_at( image, label,                 font, ptSize, grpLayer,  500, secondLine + (i+3) * lineHeight )
+    create_text_layer_at( image, str( dataEntries[i] ), font, ptSize, grpLayer, 2850, secondLine + (i+3) * lineHeight )
+  
+  return image
+
+
 def fixture_run(procedure, run_mode, image, drawables, config, data):
 
   # Read JSON
-  chooser = JsonFileChooser( "Select JSON file with score tables" )
+  chooser = JsonFileChooser( "Select JSON file with fixtures" )
   json_path = chooser.run()
   if json_path:
     fixData = load_json( json_path )
@@ -515,7 +574,7 @@ def fixture_run(procedure, run_mode, image, drawables, config, data):
 def fixture_res_run(procedure, run_mode, image, drawables, config, data):
 
   # Read JSON
-  chooser = JsonFileChooser( "Select JSON file with score tables" )
+  chooser = JsonFileChooser( "Select JSON file with results" )
   json_path = chooser.run()
   if json_path:
     fixData = load_json( json_path )
@@ -629,10 +688,29 @@ def draw_shape_run(procedure, run_mode, image, drawables, config, data):
 
   return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
 
+def infographic_run(procedure, run_mode, image, drawables, config, data):
+
+  # Read JSON
+  chooser = JsonFileChooser( "Select JSON file with infographic details" )
+  json_path = chooser.run()
+  if json_path:
+    infoData = load_json( json_path )
+    
+    logoFolder = "D:\\Media\\Oxley\\ClubLogos"
+
+    image.undo_group_start()
+    process_infographic( image, run_mode, logoFolder, infoData, 48 )
+    image.undo_group_end()
+
+    return procedure.new_return_values( Gimp.PDBStatusType.SUCCESS, None )
+  else:
+    return procedure.new_return_values( Gimp.PDBStatusType.CANCEL, GLib.Error() )
+
+
 class SoccerPlugin (Gimp.PlugIn):
   def do_query_procedures(self):
     print( "Query self procedures" )
-    return [ score_table_proc, golden_boot_proc, next_fixture_prc, team_fixture_prc, draw_football_pr, fixture_res_proc ]
+    return [ score_table_proc, golden_boot_proc, next_fixture_prc, team_fixture_prc, draw_football_pr, fixture_res_proc, infographic_proc ]
 
   def do_set_i18n (self, name):
       return False
@@ -657,6 +735,9 @@ class SoccerPlugin (Gimp.PlugIn):
       
     if name == fixture_res_proc:
       procedure = self.createProc(name, fixture_res_run, "Display Fixture Results", '<Image>/Filters/Soccer/', "Display Fixture Results" )
+      
+    if name == infographic_proc:
+      procedure = self.createProc(name, infographic_run, "Create Infographic", '<Image>/Filters/Soccer/', "Create Infographic" )
       
     return procedure
 
