@@ -15,6 +15,8 @@ team_fixture_prc  = "plug-in-football-fixture-team"
 draw_football_pr  = "plug-in-football-shape"
 fixture_res_proc  = "plug-in-football-results"
 infographic_proc  = "plug-in-football-infographic"
+team_info_proc    = "plug-in-football-team-infographic"
+chevron_proc      = 'plug-in-football-chevron'
 
 class JsonFileChooser:
   def __init__(self, title="Select JSON File"):
@@ -84,14 +86,177 @@ def extract_column(data, attr):
 def coords_to_vec2_list(flat_coords):
   return [(flat_coords[i], flat_coords[i + 1]) for i in range(0, len(flat_coords), 2)]
 
-def create_card( image, grpLayer, xPos, yPos, width, height ):
+def createNewLayer( image, name, width, height, parent=None ):
+  layer = Gimp.Layer.new( image, name, width, height, Gimp.ImageType.RGBA_IMAGE, 100, Gimp.LayerMode.NORMAL )
+  image.insert_layer( layer, parent, -1 )
+  return layer
+
+def createVecLayer( image, path, parent=None ):
+  layer = Gimp.VectorLayer.new( image, path )
+  image.insert_layer( layer, parent, -1 )
+  return layer
+
+def chevron_up( x, y, width, height ):
+    return [
+      ( x, y + height ),
+      ( x + width, y ),
+      ( x + ( 0.75 * width ), y  ),
+      ( x + width, y + ( 0.25 * height ) ),
+      ( x + width, y ),
+    ]
+    #halfW = width  / 2
+    #halfH = height / 2
+    #return [
+    #  ( x - halfW,       y + height ),
+    #  ( x - (halfW / 2), y + halfH  ),
+    #  ( x,               y + ( halfH * 1.5 )  ),
+    #  ( x + (halfW / 2), y + ( halfH * 1.5 )  ),
+    #  ( x + width, y ),
+    #  ( x + ( halfW * 1.25 ), y ),
+    #  ( x + width, y + ( 0.5 * halfH ) ),
+    #  ( x + width, y ),
+    #]
+    #halfW = width / 2
+    #return [ 
+    #        (x - (2*width), y + 1.5 * height),              # End point left
+    #        (x - (width+halfW), y + height),              # End point left
+    #        (x - width, y + 0.75 * height),              # End point left
+    #        (x - halfW, y + height),              # End point left
+    #        (x, y),                                 # Mid point
+    #        (x + halfW, y + height ),              # End point right
+    #        (x + width, y + 0.75 * height ),              # End point right
+    #        (x + (width+halfW), y + height),              # End point left
+    #        (x + (2*width), y + 1.5 * height),              # End point left
+    #]
+
+def draw_chevron_up( image, x, y, width, height, color ):
+  points = chevron_up( x=x, y=y, height=width, width=height )
+  neon_gradient_fill( image=image,
+                      points=points,
+                      color1=color,   # lime
+                      color2=color,   # emerald
+                      glow_px=40,
+                      feather_px=20,
+                      name="neon_up"
+    )
+
+def chevron_down(x, y, width, height ):
+    return [
+      ( x,       y ),
+      ( x + width, y + height ),
+      ( x + ( 0.75 * width ), y + height ),
+      ( x + width, y + ( 0.75 * height ) ),
+      ( x + width, y + height ),
+    ]
+    #halfW = width  / 2
+    #halfH = height / 2
+    #return [
+    #  ( x - halfW,       y ),
+    #  ( x - (halfW / 2), y + halfH  ),
+    #  ( x,               y + ( halfH * 0.5 )  ),
+    #  ( x + (halfW / 2), y + ( halfH * 0.5 )  ),
+    #  ( x + width, y + height ),
+    #  ( x + ( halfW * 1.25 ), y + height ),
+    #  ( x + width, y + ( 1.5 * halfH ) ),
+    #  ( x + width, y + height ),
+    #]
+    #halfW = width / 2
+    #return [ 
+    #        (x - (2*width), y - 1.5 * height),              # End point left
+    #        (x - (width+halfW), y - height),              # End point left
+    #        (x - width, y - 0.75 * height),              # End point left
+    #        (x - halfW, y - height),              # End point left
+    #        (x, y),                                 # Mid point
+    #        (x + halfW, y - height ),              # End point right
+    #        (x + width, y - 0.75 * height ),              # End point right
+    #        (x + (width+halfW), y - height),              # End point left
+    #        (x + (2*width), y - 1.5 * height),              # End point left
+    #]
+
+def draw_chevron_down( image, x, y, width, height, color ):
+  points = chevron_down( x=x, y=y, height=width, width=height )
+  neon_gradient_fill( image=image,
+                      points=points,
+                      color1=color,   # lime
+                      color2=color,   # emerald
+                      glow_px=40,
+                      feather_px=20,
+                      name="neon_up"
+    )
+
+def catmullRomLine( p0, p1, p2, p3, t, t2, t3 ):
+  return 0.5 * (
+                  ( 2    * p1 ) +
+                  ( -p0  + p2 ) * t +
+                  ( 2*p0 - 5*p1 + 4*p2 - p3 ) * t2 +
+                  ( -p0  + 3*p1 - 3*p2 + p3 ) * t3
+  )
+
+def catmullRomInterpolate( p0, p1, p2, p3, steps=20 ):
+  points = []
+  for step in range( steps + 1 ):
+    t = step / steps # 0..1
+    t2 = t ** 2
+    t3 = t2 * t
+    # We need continuity between points, so Bezier is out
+    # https://en.wikipedia.org/wiki/Catmull%E2%80%93Rom_spline
+    # Ah, the joys of matrix math coming back
+    # 
+    sampleX = catmullRomLine( p0[0], p1[0], p2[0], p3[0], t, t2, t3 )
+    sampleY = catmullRomLine( p0[1], p1[1], p2[1], p3[1], t, t2, t3 )
+    points.append( ( sampleX, sampleY ) )
+  return points
+
+def neon_gradient_fill( image, points, color1, color2, glow_px, feather_px, name, withSpline = False ):
+
+  brushSize   = 20
+  orgLineWith = Gimp.context_get_brush_size()
+  Gimp.context_set_brush_size( brushSize )
+  curFG = Gimp.context_get_foreground()
+  stroke = createNewLayer( image, name + "_stroke", image.get_width(), image.get_height() )
+  geglColor1 = Gimp.color_parse_hex( color1 )
+  Gimp.context_set_foreground( geglColor1 )  # solid red
+
+  if( withSpline ):
+    fullPoints = []
+    for p0, p1, p2, p3 in zip(points, points[1:], points[2:], points[3:] ):
+      interPoints = catmullRomInterpolate( p0, p1, p2, p3 )
+      for x, y in interPoints:
+        fullPoints.extend( [x, y] )
+
+    Gimp.airbrush( stroke, 75, fullPoints )
+
+    # And let's debug the control points
+    #Gimp.context_set_brush_size( 3 * brushSize )
+    #geglColor2 = Gimp.color_parse_hex( color2 )
+    #Gimp.context_set_foreground( geglColor2 )  # solid red
+    #for i in range( len( fullPoints ) ):
+    #  Gimp.pencil( stroke, [ fullPoints[i], fullPoints[i + 1], fullPoints[i], fullPoints[i + 1] ] )
+    #  i += 1
+    for i, (x, y) in enumerate(points):
+      nxColor = Gimp.color_parse_hex( f"#{i * 20:02X}{i * 20:02X}{i * 20:02X}")
+      Gimp.context_set_foreground( nxColor )  # solid red
+      Gimp.pencil( stroke, [ x, y, x, y ] )
+  else:
+    fullPoints = []
+    for x, y in points:
+      fullPoints.extend( [x, y] )
+    Gimp.pencil( stroke, fullPoints )
+    
+  
+  Gimp.context_set_brush_size( orgLineWith )
+  Gimp.context_set_foreground( curFG )
+  
+
+
+def create_card( image, grpLayer, xPos, yPos, width, height, color="#FFFF00" ):
   bg_layer = Gimp.Layer.new(image, "Card", width, height, Gimp.ImageType.RGBA_IMAGE, 50, Gimp.LayerMode.NORMAL)
   image.insert_layer( bg_layer, grpLayer, -1 )
   bg_layer.set_offsets( xPos, yPos )
 
   # Set background color (red with 50% transparency)
   curFG = Gimp.context_get_foreground()
-  yellow = Gimp.color_parse_hex( "FFFF00" )
+  yellow = Gimp.color_parse_hex( color )
   Gimp.context_set_foreground(yellow)  # Red, 50% alpha
   bg_layer.edit_fill(Gimp.FillType.FOREGROUND)
   Gimp.context_set_foreground(curFG)
@@ -198,7 +363,7 @@ def score_table_run(procedure, run_mode, image, drawables, config, data):
   else:
     return procedure.new_return_values( Gimp.PDBStatusType.CANCEL, GLib.Error() )
 
-def newDimensions(layer, newMaxDim):
+def newDimensions( layer, newMaxDim ):
   
   yVal = layer.get_height()
   xVal = layer.get_width()
@@ -211,6 +376,15 @@ def newDimensions(layer, newMaxDim):
     divisor = newMaxDim / xVal
     return [ newMaxDim, yVal * divisor]
 
+
+def loadImageAsLayer( image, filename, offsetX, offsetY, parentLayer = None, maxDimension = 400 ):
+  file = Gio.File.new_for_path( filename )
+  hlayer = Gimp.file_load_layer( Gimp.RunMode.NONINTERACTIVE, image, file )
+  image.insert_layer( hlayer, parentLayer, -1 )
+  hX, hY = newDimensions( hlayer, maxDimension )
+  hlayer.scale( hX, hY, True )
+  hlayer.set_offsets( offsetX, offsetY )
+  
 def process_fixture_table(image, run_mode, folder, fixtures, ptSize ):
 
   font = Gimp.Font.get_by_name("Serif")
@@ -221,8 +395,7 @@ def process_fixture_table(image, run_mode, folder, fixtures, ptSize ):
   _,xPos,_ = round_layer.get_offsets()
   round_layer.set_offsets( xPos, 675 )
   
-  i = 0
-  for entry in fixtures:
+  for i, entry in enumerate(fixtures):
     
     div = entry['div']
     match = entry['match']
@@ -247,22 +420,10 @@ def process_fixture_table(image, run_mode, folder, fixtures, ptSize ):
       
     create_text_layer_at( image, text_value, font, ptSize, grpLayerTeam, 1500, 1000 + i * 500 )
 
-    # Load home    
-    file = Gio.File.new_for_path( folder + "\\" + match["home"] + ".png" )
-    hlayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
-    image.insert_layer(hlayer, grpLayerTeam, -1 )
-    hX, hY = newDimensions( hlayer, 400 )
-    hlayer.scale( hX, hY, True )
-    hlayer.set_offsets( 500, 1000 + i * 500 )
+    # Load logos
+    loadImageAsLayer( image, folder + "\\" + match["home"] + ".png", 500, 1000 + i * 500, grpLayerTeam, 400 )
+    loadImageAsLayer( image, folder + "\\" + match["away"] + ".png", 5000, 1000 + i * 500, grpLayerTeam, 400 )
 
-    file = Gio.File.new_for_path( folder + "\\" + match["away"] + ".png" )
-    alayer = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, image, file)
-    image.insert_layer(alayer, grpLayerTeam, -1 )
-    aX, aY = newDimensions( alayer, 400 )
-    alayer.scale( aX, aY, True )
-    alayer.set_offsets( 5000, 1000 + i * 500 )
-
-    i = i + 1
   return image
 
 def process_fixture_results( image, run_mode, folder, fixtures, ptSize ):
@@ -398,8 +559,116 @@ def process_infographic(image, run_mode, folder, data, ptSize ):
   
   return image
 
+def getSpecificDetails( name, data, attr, label ):
+  if name != 'overall':
+    return data[attr]["name"] + " with " + str( data[attr]["value"] ) + " " + label
+  else:
+    return str( data[attr]["value"] )
 
-def fixture_run(procedure, run_mode, image, drawables, config, data):
+
+def getDirection( value ):
+  return (1 if value > 0 else (-1 if value < 0 else 0 ) )
+
+
+def processStatLayer( image, label, value, direction, font, ptSize, grpLayer, x1, x2, y1, lineHeight ):
+  create_text_layer_at( image, label,        font, ptSize, grpLayer, x1, y1 )
+  create_text_layer_at( image, str( value ), font, ptSize, grpLayer, x2, y1 )
+  dir, colUp, colDown = direction
+  match dir:
+    case -1:
+      draw_chevron_down( image, x2 - lineHeight, y1, lineHeight * 0.6, lineHeight * 0.6, colDown )
+    case 0:
+      curFG = Gimp.context_get_foreground()
+      Gimp.context_set_foreground( Gimp.color_parse_hex( "#FFBB40" ) )
+      create_text_layer_at( image, "=", font, ptSize, grpLayer, 2650, y1 )
+      Gimp.context_set_foreground( curFG )
+    case 1:
+      draw_chevron_up( image, x2 - lineHeight, y1, lineHeight * 0.6, lineHeight * 0.6, colUp )
+  
+
+def process_team_infographic( image, run_mode, folder, name, data, ptSize ):
+
+  topSpot = 250
+  firstLine = 1000
+  lineHeight = 250
+  secondLine = 2200
+  
+  font = Gimp.Font.get_by_name("Serif")
+  # Loop through fields to create text layers
+  grpLayer = Gimp.GroupLayer.new(image, name + " Infographic")
+  image.insert_layer( grpLayer, None, 0 )
+  title_layer = create_title_card(image, grpLayer, ptSize, font, name.capitalize() + " Stats" )
+  _,xPos,_ = title_layer.get_offsets()
+  title_layer.set_offsets( xPos, topSpot - 150 )
+  
+  ball    = "\U000026BD"
+  person  = "\U0001F464"  
+  good    = "#00FF00"
+  bad     = "#FF0000"
+  
+  # Statistics
+  labels  = [ "Players", "Goals", "Number of Scorers", "Top scorer", "Average Goals / Round", "Best Round" ]
+  inRound = " in round " + str( data["highestRound"]) if name != 'overall' else ""
+  dataEntries = [
+    str(data["players"]) + " " + person,
+    str(data["goals"]) + " " + ball,
+    str(data["uniqueScorers"]) + " " + person,
+    getSpecificDetails( name, data, 'top_scorer', 'goals' ),
+    f"{data["avgGoalsPerRound"]:.2f}",
+    str(data["highestRoundGoals"]) + inRound
+  ]
+  direction = [
+    ( getDirection( data['players']  ), good, bad ),
+    ( getDirection( data['goals']  ), good, bad ),
+    ( getDirection( data['uniqueScorers']  ), good, bad ),
+    ( getDirection( data["top_scorer"]["value"]  ), good, bad ),
+    ( getDirection( data['avgGoalsPerRound']  ), good, bad ),
+    ( getDirection( data['highestRoundGoals']  ), good, bad ),
+  ]
+  create_text_layer_at( image, ball + " Goals " + ball, font, ptSize * 2, grpLayer,  200, topSpot + lineHeight )
+  for i, label in enumerate(labels):
+    processStatLayer( image, label, dataEntries[i], direction[i], font, ptSize, grpLayer, 500, 2850, firstLine + i * lineHeight, lineHeight )
+
+  # FIFA Fair Play
+  labels = [ "Yellows", "Reds", "Players Carded", "Top card holder" ]
+  create_card( image, grpLayer, 300, secondLine + lineHeight + 100, 200, 300 )
+  create_text_layer_at( image, "Cards", font, ptSize * 2, grpLayer, 500, secondLine + lineHeight )
+  create_card( image, grpLayer, 1500, secondLine + lineHeight + 100, 200, 300, color="#FF0000" )
+  dataEntries = [
+    str(data["yellows"]),
+    str(data["reds"]),
+    str(data["uniqueCarders"]) + " " + person,
+    getSpecificDetails( name, data, 'top_carder', 'value' ),
+  ]
+  direction = [
+    ( getDirection( data['yellows']  ), bad, good ),
+    ( getDirection( data['reds']  ), bad, good ),
+    ( getDirection( data['uniqueCarders']  ), bad, good ),
+    ( getDirection( data["top_carder"]["value"]  ), bad, good ),
+  ]
+  for i, label in enumerate(labels):
+    processStatLayer( image, label, dataEntries[i], direction[i], font, ptSize, grpLayer, 500, 2850, secondLine + (i+3) * lineHeight, lineHeight )
+
+  # Matches
+  labels = [ "Wins", "Draws", "Losses", "Goals For", "Goals Against", "Rank" ]
+  create_text_layer_at( image, "Matches", font, ptSize * 2, grpLayer,  3600, topSpot + lineHeight )
+  dataEntries = [ str( data['teams']["wins"] ), str( data['teams']["draws"] ), str( data['teams']["losses"] ),
+                  str( data['teams']["gf"] ),   str( data['teams']["ga"] ),    f"{data['teams']["avgRank"]:.2f}"
+  ]
+  direction = [
+    ( getDirection( data['teams']['wins']  ), good, bad ),
+    ( getDirection( data['teams']['draws']  ), good, bad ),
+    ( getDirection( data['teams']['losses']  ), bad, good ),
+    ( getDirection( data['teams']["gf"]  ), good, bad ),
+    ( getDirection( data['teams']['ga']  ), bad, good ),
+    ( getDirection( data['teams']['avgRank']  ), bad, good ),
+  ]
+  for i, label in enumerate(labels):
+    processStatLayer( image, label, dataEntries[i], direction[i], font, ptSize, grpLayer, 3600, 5000, firstLine + i * lineHeight, lineHeight )
+  
+  return image
+
+def fixture_run( procedure, run_mode, image, drawables, config, data ):
 
   # Read JSON
   chooser = JsonFileChooser( "Select JSON file with fixtures" )
@@ -550,10 +819,56 @@ def infographic_run(procedure, run_mode, image, drawables, config, data):
     return procedure.new_return_values( Gimp.PDBStatusType.CANCEL, GLib.Error() )
 
 
+def team_info_run(procedure, run_mode, image, drawables, config, data):
+
+  # Read JSON
+  chooser = JsonFileChooser( "Select JSON file with team infographic details" )
+  json_path = chooser.run()
+  if json_path:
+    infoData = load_json( json_path )
+    
+    logoFolder = "D:\\Media\\Oxley\\ClubLogos"
+
+    image.undo_group_start()
+    for name, stats in infoData.items():
+      process_team_infographic( image, run_mode, logoFolder, name, stats, 48 )
+      break
+    image.undo_group_end()
+
+    return procedure.new_return_values( Gimp.PDBStatusType.SUCCESS, None )
+  else:
+    return procedure.new_return_values( Gimp.PDBStatusType.CANCEL, GLib.Error() )
+
+
+def chevron_run( procedure, run_mode, image, drawables, config, data ):
+  image.undo_group_start()
+  points = chevron_up( x=3000, y=2000, height=400, width=400 )
+  neon_gradient_fill( image=image,
+                      points=points,
+                      color1="#00FF40",   # lime
+                      color2="#0080FF",   # emerald
+                      glow_px=40,
+                      feather_px=20,
+                      name="neon_up"
+    )
+  #points = chevron_down( x=3000, y=2000, height=400, width=150 )
+  #neon_gradient_fill( image=image,
+  #                    points=points,
+  #                    color1="#0040FF",   # lime
+  #                    color2="#0080FF",   # emerald
+  #                    glow_px=40,
+  #                    feather_px=20,
+  #                    name="neon_up"
+  #  )
+  image.undo_group_end()
+  return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
+  
+
+
 class SoccerPlugin (Gimp.PlugIn):
   def do_query_procedures(self):
     print( "Query self procedures" )
-    return [ score_table_proc, next_fixture_prc, team_fixture_prc, draw_football_pr, fixture_res_proc, infographic_proc ]
+    return [ score_table_proc, next_fixture_prc, team_fixture_prc, draw_football_pr, fixture_res_proc, infographic_proc, chevron_proc, team_info_proc ]
 
   def do_set_i18n (self, name):
       return False
@@ -578,6 +893,12 @@ class SoccerPlugin (Gimp.PlugIn):
       
     if name == infographic_proc:
       procedure = self.createProc(name, infographic_run, "Create Infographic", '<Image>/Filters/Soccer/', "Create Infographic" )
+      
+    if name == chevron_proc:
+      procedure = self.createProc( name, chevron_run, "Create Chevron", '<Image>/Filters/Soccer/', "Create Chevron" )
+      
+    if name == team_info_proc:
+      procedure = self.createProc( name, team_info_run, "Team Infographic", '<Image>/Filters/Soccer/', "Team Infographic" )
       
     return procedure
 
